@@ -65,9 +65,6 @@ docker run -p 8501:8501 streamlit-app
 - AWS ECS/Fargate
 - Azure Container Apps
 
-### Vercelについて
-**注意**: Vercelはサーバーレスプラットフォームであり、長時間実行されるWebSocketベースのStreamlitアプリには適していません。Streamlit Community CloudまたはDocker対応ホスティングサービスの使用を推奨します。
-
 ## プロジェクト構造
 
 ```
@@ -77,7 +74,6 @@ docker run -p 8501:8501 streamlit-app
 ├── Dockerfile         # Dockerコンテナ設定
 ├── .dockerignore      # Docker除外ファイル
 ├── .gitignore         # Git除外ファイル
-├── vercel.json        # Vercel設定（参考用）
 └── README.md          # このファイル
 ```
 
