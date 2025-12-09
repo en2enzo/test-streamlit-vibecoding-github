@@ -1,0 +1,2 @@
+# No dependencies required for the information page
+# This file is intentionally minimal to keep Vercel serverless function size under 250MB

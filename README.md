@@ -79,14 +79,15 @@ Streamlitアプリを実際に動かすには以下を推奨：
 ```
 .
 ├── api/
-│   └── index.py       # Vercel用情報ページ
-├── app.py             # メインStreamlitアプリ
-├── requirements.txt   # Python依存パッケージ
-├── Dockerfile         # Dockerコンテナ設定
-├── vercel.json        # Vercel設定
-├── .dockerignore      # Docker除外ファイル
-├── .gitignore         # Git除外ファイル
-└── README.md          # このファイル
+│   ├── index.py           # Vercel用情報ページ（標準ライブラリのみ使用）
+│   └── requirements.txt   # Vercel用依存パッケージ（空）
+├── app.py                 # メインStreamlitアプリ
+├── requirements.txt       # Streamlitアプリ用依存パッケージ
+├── Dockerfile             # Dockerコンテナ設定
+├── vercel.json            # Vercel設定
+├── .dockerignore          # Docker除外ファイル
+├── .gitignore             # Git除外ファイル
+└── README.md              # このファイル
 ```
 
 ## 技術スタック
@@ -95,7 +96,6 @@ Streamlitアプリを実際に動かすには以下を推奨：
 - **Pandas**: データ操作
 - **NumPy**: 数値計算
 - **Plotly**: インタラクティブなグラフ作成
-- **FastAPI**: Vercel用情報ページ
 
 ## ライセンス
 
