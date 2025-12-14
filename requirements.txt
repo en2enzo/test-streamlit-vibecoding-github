@@ -6,3 +6,4 @@ yfinance>=0.2.0
 folium>=0.15.0
 streamlit-folium>=0.15.0
 geopy>=2.4.0
+fastf1>=3.3.0

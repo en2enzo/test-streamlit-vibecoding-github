@@ -12,6 +12,8 @@ from geopy.geocoders import Nominatim
 from geopy.extra.rate_limiter import RateLimiter
 import time
 import re
+import fastf1
+import warnings
 
 # ページ設定
 st.set_page_config(
@@ -28,7 +30,7 @@ st.markdown("---")
 st.sidebar.header("設定")
 option = st.sidebar.selectbox(
     "表示するデモを選択",
-    ["ホーム", "データ可視化", "インタラクティブUI", "チャート", "株価分析", "イトーヨーカドー店舗マップ"]
+    ["ホーム", "データ可視化", "インタラクティブUI", "チャート", "株価分析", "イトーヨーカドー店舗マップ", "F1分析"]
 )
 
 # ホーム画面
@@ -646,6 +648,371 @@ elif option == "イトーヨーカドー店舗マップ":
         # 注意事項
         st.markdown("---")
         st.info("ℹ️ **情報**: list_store.txtに記載されている緯度経度情報を使用して店舗を表示しています。")
+
+# F1分析
+elif option == "F1分析":
+    st.header("🏎️ F1分析ダッシュボード")
+    st.write("Fast-F1ライブラリを使用してF1データを分析・可視化します。")
+
+    # Fast-F1のキャッシュを有効化
+    warnings.filterwarnings('ignore')
+    fastf1.Cache.enable_cache('cache')
+
+    # サイドバー設定
+    st.sidebar.subheader("分析設定")
+
+    # 年とグランプリを選択
+    year = st.sidebar.selectbox(
+        "シーズンを選択",
+        [2024, 2023, 2022, 2021, 2020],
+        index=0
+    )
+
+    # サンプルのグランプリリスト
+    grand_prix_options = {
+        2024: ["Bahrain", "Saudi Arabia", "Australia", "Japan", "Miami", "Monaco", "Spain", "Canada", "Austria", "Great Britain"],
+        2023: ["Bahrain", "Saudi Arabia", "Australia", "Japan", "Miami", "Monaco", "Spain", "Canada", "Austria", "Great Britain"],
+        2022: ["Bahrain", "Saudi Arabia", "Australia", "Japan", "Miami", "Monaco", "Spain", "Canada", "Austria", "Great Britain"],
+        2021: ["Bahrain", "Saudi Arabia", "Australia", "Japan", "Miami", "Monaco", "Spain", "Canada", "Austria", "Great Britain"],
+        2020: ["Bahrain", "Saudi Arabia", "Australia", "Japan", "Miami", "Monaco", "Spain", "Canada", "Austria", "Great Britain"]
+    }
+
+    gp = st.sidebar.selectbox(
+        "グランプリを選択",
+        grand_prix_options.get(year, ["Bahrain"]),
+        index=0
+    )
+
+    session_type = st.sidebar.selectbox(
+        "セッション種別",
+        ["Race", "Qualifying", "Sprint", "Practice 1", "Practice 2", "Practice 3"],
+        index=0
+    )
+
+    # データ読み込み
+    try:
+        with st.spinner(f'{year} {gp} Grand Prix {session_type}のデータを読み込み中...'):
+            # セッションデータを取得
+            session = fastf1.get_session(year, gp, session_type)
+            session.load()
+
+            # 統計情報
+            st.markdown("---")
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                st.metric("シーズン", year)
+            with col2:
+                st.metric("グランプリ", gp)
+            with col3:
+                st.metric("セッション", session_type)
+
+            st.markdown("---")
+
+            # タブで表示を切り替え
+            tab1, tab2, tab3, tab4 = st.tabs(["📊 ラップタイム分析", "🏁 ドライバー比較", "⚡ テレメトリ", "📋 データ"])
+
+            with tab1:
+                st.subheader("ラップタイム分析")
+
+                # ラップデータを取得
+                laps = session.laps
+
+                if not laps.empty:
+                    # ドライバーごとのラップタイムをプロット
+                    drivers = laps['Driver'].unique()
+
+                    # ラップタイムを秒に変換
+                    laps['LapTimeSeconds'] = laps['LapTime'].dt.total_seconds()
+
+                    # 外れ値を除外（例：ピットインラップ）
+                    laps_clean = laps[laps['LapTimeSeconds'].notna()]
+                    median_time = laps_clean['LapTimeSeconds'].median()
+                    laps_clean = laps_clean[
+                        (laps_clean['LapTimeSeconds'] < median_time * 1.1) &
+                        (laps_clean['LapTimeSeconds'] > median_time * 0.9)
+                    ]
+
+                    # ラップタイム推移グラフ
+                    fig = px.scatter(
+                        laps_clean,
+                        x='LapNumber',
+                        y='LapTimeSeconds',
+                        color='Driver',
+                        title=f'{year} {gp} GP - ラップタイム推移',
+                        labels={'LapNumber': 'ラップ番号', 'LapTimeSeconds': 'ラップタイム (秒)'},
+                        hover_data=['Compound', 'TyreLife']
+                    )
+
+                    fig.update_layout(height=500)
+                    st.plotly_chart(fig, use_container_width=True)
+
+                    # ドライバー別平均ラップタイム
+                    st.subheader("ドライバー別平均ラップタイム")
+                    avg_laptimes = laps_clean.groupby('Driver')['LapTimeSeconds'].agg(['mean', 'min', 'max']).reset_index()
+                    avg_laptimes.columns = ['ドライバー', '平均 (秒)', '最速 (秒)', '最遅 (秒)']
+                    avg_laptimes = avg_laptimes.sort_values('平均 (秒)')
+
+                    fig_avg = px.bar(
+                        avg_laptimes,
+                        x='ドライバー',
+                        y='平均 (秒)',
+                        title='ドライバー別平均ラップタイム',
+                        color='平均 (秒)',
+                        color_continuous_scale='Viridis'
+                    )
+                    fig_avg.update_layout(height=400)
+                    st.plotly_chart(fig_avg, use_container_width=True)
+
+                    # データテーブル
+                    st.dataframe(avg_laptimes, hide_index=True, use_container_width=True)
+                else:
+                    st.warning("ラップデータが見つかりませんでした。")
+
+            with tab2:
+                st.subheader("ドライバー比較")
+
+                # ドライバー選択
+                available_drivers = laps['Driver'].unique().tolist()
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    driver1 = st.selectbox("ドライバー 1", available_drivers, index=0)
+                with col2:
+                    driver2_index = min(1, len(available_drivers) - 1)
+                    driver2 = st.selectbox("ドライバー 2", available_drivers, index=driver2_index)
+
+                # 2人のドライバーのラップを比較
+                driver1_laps = laps.pick_driver(driver1)
+                driver2_laps = laps.pick_driver(driver2)
+
+                if not driver1_laps.empty and not driver2_laps.empty:
+                    # ラップタイム比較
+                    driver1_laps['LapTimeSeconds'] = driver1_laps['LapTime'].dt.total_seconds()
+                    driver2_laps['LapTimeSeconds'] = driver2_laps['LapTime'].dt.total_seconds()
+
+                    # 比較データフレームを作成
+                    comparison_df = pd.DataFrame({
+                        'LapNumber': list(driver1_laps['LapNumber']) + list(driver2_laps['LapNumber']),
+                        'LapTime': list(driver1_laps['LapTimeSeconds']) + list(driver2_laps['LapTimeSeconds']),
+                        'Driver': [driver1] * len(driver1_laps) + [driver2] * len(driver2_laps)
+                    })
+
+                    # 外れ値除去
+                    comparison_df = comparison_df[comparison_df['LapTime'].notna()]
+                    median = comparison_df['LapTime'].median()
+                    comparison_df = comparison_df[
+                        (comparison_df['LapTime'] < median * 1.1) &
+                        (comparison_df['LapTime'] > median * 0.9)
+                    ]
+
+                    # プロット
+                    fig_comp = px.line(
+                        comparison_df,
+                        x='LapNumber',
+                        y='LapTime',
+                        color='Driver',
+                        title=f'{driver1} vs {driver2} - ラップタイム比較',
+                        labels={'LapNumber': 'ラップ番号', 'LapTime': 'ラップタイム (秒)'},
+                        markers=True
+                    )
+                    fig_comp.update_layout(height=500)
+                    st.plotly_chart(fig_comp, use_container_width=True)
+
+                    # 統計比較
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+                        st.markdown(f"### {driver1} 統計")
+                        d1_clean = driver1_laps[driver1_laps['LapTimeSeconds'].notna()]
+                        if not d1_clean.empty:
+                            st.metric("平均ラップタイム", f"{d1_clean['LapTimeSeconds'].mean():.3f}秒")
+                            st.metric("最速ラップ", f"{d1_clean['LapTimeSeconds'].min():.3f}秒")
+                            st.metric("ラップ数", len(d1_clean))
+
+                    with col2:
+                        st.markdown(f"### {driver2} 統計")
+                        d2_clean = driver2_laps[driver2_laps['LapTimeSeconds'].notna()]
+                        if not d2_clean.empty:
+                            st.metric("平均ラップタイム", f"{d2_clean['LapTimeSeconds'].mean():.3f}秒")
+                            st.metric("最速ラップ", f"{d2_clean['LapTimeSeconds'].min():.3f}秒")
+                            st.metric("ラップ数", len(d2_clean))
+                else:
+                    st.warning("選択したドライバーのデータが見つかりませんでした。")
+
+            with tab3:
+                st.subheader("テレメトリデータ")
+
+                # ドライバー選択
+                selected_driver = st.selectbox(
+                    "ドライバーを選択",
+                    available_drivers,
+                    key='telemetry_driver'
+                )
+
+                # ラップ番号選択
+                driver_laps = laps.pick_driver(selected_driver)
+                if not driver_laps.empty:
+                    lap_numbers = driver_laps['LapNumber'].unique().tolist()
+                    selected_lap = st.selectbox("ラップ番号を選択", lap_numbers)
+
+                    # テレメトリデータを取得
+                    try:
+                        lap = driver_laps[driver_laps['LapNumber'] == selected_lap].iloc[0]
+                        telemetry = lap.get_telemetry()
+
+                        if not telemetry.empty:
+                            # 速度グラフ
+                            st.markdown("#### 速度")
+                            fig_speed = go.Figure()
+                            fig_speed.add_trace(go.Scatter(
+                                x=telemetry['Distance'],
+                                y=telemetry['Speed'],
+                                mode='lines',
+                                name='速度',
+                                line=dict(color='red')
+                            ))
+                            fig_speed.update_layout(
+                                xaxis_title='距離 (m)',
+                                yaxis_title='速度 (km/h)',
+                                height=300
+                            )
+                            st.plotly_chart(fig_speed, use_container_width=True)
+
+                            # スロットル・ブレーキ
+                            st.markdown("#### スロットル・ブレーキ")
+                            fig_tb = go.Figure()
+                            fig_tb.add_trace(go.Scatter(
+                                x=telemetry['Distance'],
+                                y=telemetry['Throttle'],
+                                mode='lines',
+                                name='スロットル',
+                                line=dict(color='green')
+                            ))
+                            fig_tb.add_trace(go.Scatter(
+                                x=telemetry['Distance'],
+                                y=telemetry['Brake'],
+                                mode='lines',
+                                name='ブレーキ',
+                                line=dict(color='red')
+                            ))
+                            fig_tb.update_layout(
+                                xaxis_title='距離 (m)',
+                                yaxis_title='入力 (%)',
+                                height=300
+                            )
+                            st.plotly_chart(fig_tb, use_container_width=True)
+
+                            # ギア
+                            st.markdown("#### ギア")
+                            fig_gear = go.Figure()
+                            fig_gear.add_trace(go.Scatter(
+                                x=telemetry['Distance'],
+                                y=telemetry['nGear'],
+                                mode='lines',
+                                name='ギア',
+                                line=dict(color='blue')
+                            ))
+                            fig_gear.update_layout(
+                                xaxis_title='距離 (m)',
+                                yaxis_title='ギア',
+                                height=300
+                            )
+                            st.plotly_chart(fig_gear, use_container_width=True)
+                        else:
+                            st.warning("テレメトリデータが見つかりませんでした。")
+                    except Exception as e:
+                        st.error(f"テレメトリデータの読み込みエラー: {str(e)}")
+                else:
+                    st.warning("選択したドライバーのデータが見つかりませんでした。")
+
+            with tab4:
+                st.subheader("セッションデータ")
+
+                # ラップデータ表示
+                if not laps.empty:
+                    # 表示するカラムを選択
+                    display_columns = ['LapNumber', 'Driver', 'LapTime', 'Sector1Time', 'Sector2Time',
+                                       'Sector3Time', 'Compound', 'TyreLife', 'TrackStatus']
+
+                    # カラムが存在するか確認
+                    available_columns = [col for col in display_columns if col in laps.columns]
+
+                    display_df = laps[available_columns].copy()
+
+                    # 日本語カラム名
+                    column_mapping = {
+                        'LapNumber': 'ラップ番号',
+                        'Driver': 'ドライバー',
+                        'LapTime': 'ラップタイム',
+                        'Sector1Time': 'セクター1',
+                        'Sector2Time': 'セクター2',
+                        'Sector3Time': 'セクター3',
+                        'Compound': 'タイヤ',
+                        'TyreLife': 'タイヤ寿命',
+                        'TrackStatus': 'トラック状況'
+                    }
+
+                    display_df = display_df.rename(columns=column_mapping)
+
+                    # 表示行数選択
+                    show_rows = st.selectbox("表示行数", [10, 25, 50, 100, "全て"], index=0, key='f1_rows')
+
+                    if show_rows == "全て":
+                        st.dataframe(display_df, use_container_width=True, hide_index=True)
+                    else:
+                        st.dataframe(display_df.head(int(show_rows)), use_container_width=True, hide_index=True)
+
+                    # CSVダウンロード
+                    csv = display_df.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="📥 CSVダウンロード",
+                        data=csv,
+                        file_name=f'f1_{year}_{gp}_{session_type}_data.csv',
+                        mime='text/csv',
+                    )
+                else:
+                    st.warning("データが見つかりませんでした。")
+
+            # セッション情報
+            st.markdown("---")
+            st.subheader("📋 セッション情報")
+
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                st.write(f"**イベント名:** {session.event['EventName']}")
+                st.write(f"**開催地:** {session.event['Location']}")
+                st.write(f"**国:** {session.event['Country']}")
+
+            with col2:
+                st.write(f"**サーキット:** {session.event.get('OfficialEventName', 'N/A')}")
+                st.write(f"**セッション:** {session_type}")
+                st.write(f"**シーズン:** {year}")
+
+            with col3:
+                if hasattr(session, 'date'):
+                    st.write(f"**日付:** {session.date}")
+                st.write(f"**総ラップ数:** {len(laps)}")
+                st.write(f"**参加ドライバー数:** {len(laps['Driver'].unique())}")
+
+    except Exception as e:
+        st.error(f"データの読み込みに失敗しました: {str(e)}")
+        st.info("""
+        **ヒント:**
+        - インターネット接続を確認してください
+        - 別のグランプリまたはシーズンを選択してみてください
+        - Fast-F1のキャッシュが破損している可能性があります
+        """)
+
+    # 注意事項
+    st.markdown("---")
+    st.info("""
+    ℹ️ **情報**:
+    - このページはFast-F1ライブラリを使用してF1の公式データを取得・分析しています
+    - データの読み込みには時間がかかる場合があります
+    - キャッシュを使用して2回目以降の読み込みを高速化しています
+    """)
 
 # フッター
 st.markdown("---")
