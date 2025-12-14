@@ -28,7 +28,7 @@ st.markdown("---")
 st.sidebar.header("設定")
 option = st.sidebar.selectbox(
     "表示するデモを選択",
-    ["ホーム", "データ可視化", "インタラクティブUI", "チャート", "株価分析", "マクドナルド店舗マップ"]
+    ["ホーム", "データ可視化", "インタラクティブUI", "チャート", "株価分析", "イトーヨーカドー店舗マップ"]
 )
 
 # ホーム画面
@@ -455,15 +455,15 @@ elif option == "株価分析":
                 st.write(f"**52週高値:** ¥{info.get('fiftyTwoWeekHigh', 'N/A')}")
                 st.write(f"**52週安値:** ¥{info.get('fiftyTwoWeekLow', 'N/A')}")
 
-# イトーヨーカドー店舗マップ（旧マクドナルド店舗マップ）
-elif option == "マクドナルド店舗マップ":
+# イトーヨーカドー店舗マップ
+elif option == "イトーヨーカドー店舗マップ":
     st.header("🏪 イトーヨーカドー店舗マップ")
     st.write("日本全国のイトーヨーカドー店舗を地図上に表示します。")
 
     # list_store.txtから店舗データを読み込む
     @st.cache_data
     def load_store_data():
-        """list_store.txtから店舗データを読み込み、緯度経度を取得する"""
+        """list_store.txtから店舗データ（緯度経度を含む）を読み込む"""
         try:
             # ファイルを読み込み
             with open('list_store.txt', 'r', encoding='utf-8') as f:
@@ -479,63 +479,33 @@ elif option == "マクドナルド店舗マップ":
                         name = parts[2]
                         address = parts[3]
 
+                        # 緯度経度がある場合は取得
+                        lat = parts[4] if len(parts) > 4 and parts[4].strip() else None
+                        lon = parts[5] if len(parts) > 5 and parts[5].strip() else None
+
                         # 郵便番号を削除して住所のみ抽出
                         address_clean = re.sub(r'〒\d{3}-\d{4}\s*', '', address)
 
-                        stores.append({
-                            'No': no,
-                            '店舗名': name,
-                            '住所': address_clean
-                        })
+                        # 都道府県を抽出
+                        pref_match = re.match(r'([^都道府県]+[都道府県])', address_clean)
+                        prefecture = pref_match.group(1) if pref_match else '不明'
+
+                        # 緯度経度が空でない場合のみ追加
+                        if lat and lon:
+                            try:
+                                stores.append({
+                                    'No': no,
+                                    '店舗名': name,
+                                    '住所': address_clean,
+                                    '緯度': float(lat),
+                                    '経度': float(lon),
+                                    '都道府県': prefecture
+                                })
+                            except ValueError:
+                                # 緯度経度の変換に失敗した場合はスキップ
+                                pass
 
             df = pd.DataFrame(stores)
-
-            # Nominatimを使って緯度経度を取得
-            geolocator = Nominatim(user_agent="streamlit_iy_store_app")
-            geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1)
-
-            latitudes = []
-            longitudes = []
-            prefectures = []
-
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-
-            for idx, row in df.iterrows():
-                status_text.text(f"店舗データを取得中... ({idx + 1}/{len(df)})")
-                progress_bar.progress((idx + 1) / len(df))
-
-                try:
-                    location = geocode(row['住所'] + ", Japan")
-                    if location:
-                        latitudes.append(location.latitude)
-                        longitudes.append(location.longitude)
-
-                        # 都道府県を抽出
-                        pref_match = re.match(r'([^都道府県]+[都道府県])', row['住所'])
-                        prefecture = pref_match.group(1) if pref_match else '不明'
-                        prefectures.append(prefecture)
-                    else:
-                        latitudes.append(None)
-                        longitudes.append(None)
-                        prefectures.append('不明')
-                except Exception as e:
-                    latitudes.append(None)
-                    longitudes.append(None)
-                    prefectures.append('不明')
-
-                time.sleep(0.1)  # API制限を回避
-
-            progress_bar.empty()
-            status_text.empty()
-
-            df['緯度'] = latitudes
-            df['経度'] = longitudes
-            df['都道府県'] = prefectures
-
-            # 緯度経度が取得できなかった店舗を除外
-            df = df.dropna(subset=['緯度', '経度'])
-
             return df
 
         except FileNotFoundError:
@@ -675,7 +645,7 @@ elif option == "マクドナルド店舗マップ":
 
         # 注意事項
         st.markdown("---")
-        st.info("ℹ️ **注意**: 初回読み込み時、住所から緯度経度を取得するため時間がかかる場合があります。取得した緯度経度情報はキャッシュされます。")
+        st.info("ℹ️ **情報**: list_store.txtに記載されている緯度経度情報を使用して店舗を表示しています。")
 
 # フッター
 st.markdown("---")
