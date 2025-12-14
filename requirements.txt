@@ -5,3 +5,4 @@ plotly>=5.18.0
 yfinance>=0.2.0
 folium>=0.15.0
 streamlit-folium>=0.15.0
+geopy>=2.4.0

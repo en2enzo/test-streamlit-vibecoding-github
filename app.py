@@ -8,6 +8,10 @@ from datetime import datetime, timedelta
 import yfinance as yf
 import folium
 from streamlit_folium import st_folium
+from geopy.geocoders import Nominatim
+from geopy.extra.rate_limiter import RateLimiter
+import time
+import re
 
 # ページ設定
 st.set_page_config(
@@ -451,183 +455,227 @@ elif option == "株価分析":
                 st.write(f"**52週高値:** ¥{info.get('fiftyTwoWeekHigh', 'N/A')}")
                 st.write(f"**52週安値:** ¥{info.get('fiftyTwoWeekLow', 'N/A')}")
 
-# マクドナルド店舗マップ
+# イトーヨーカドー店舗マップ（旧マクドナルド店舗マップ）
 elif option == "マクドナルド店舗マップ":
-    st.header("🍔 マクドナルド店舗マップ")
-    st.write("日本全国のマクドナルド店舗を地図上に表示します。")
+    st.header("🏪 イトーヨーカドー店舗マップ")
+    st.write("日本全国のイトーヨーカドー店舗を地図上に表示します。")
 
-    # 日本のマクドナルド店舗データ（サンプル）
-    # 実際の店舗データの一部を緯度経度とともに格納
-    mcd_stores = {
-        '店舗名': [
-            '新宿駅東口店', '渋谷センター街店', '銀座並木通り店', '池袋東口店', '上野アメ横店',
-            '東京駅八重洲口店', '秋葉原昭和通り店', '六本木ヒルズ店', '品川駅高輪口店', '吉祥寺サンロード店',
-            '横浜西口店', '川崎駅前店', '大宮駅西口店', '千葉駅前店', '柏駅東口店',
-            '梅田阪急三番街店', '難波戎橋店', '心斎橋店', '天王寺駅前店', '京都四条河原町店',
-            '三宮センター街店', '名古屋駅前店', '栄店', '福岡天神店', '博多駅前店',
-            '札幌駅前店', '札幌すすきの店', '仙台一番町店', '広島本通店', '那覇国際通り店'
-        ],
-        '緯度': [
-            35.6938, 35.6617, 35.6716, 35.7295, 35.7071,
-            35.6812, 35.6982, 35.6604, 35.6285, 35.7030,
-            35.4657, 35.5319, 35.9063, 35.6122, 35.8617,
-            34.7024, 34.6686, 34.6740, 34.6462, 35.0036,
-            34.6937, 35.1707, 35.1687, 33.5904, 33.5897,
-            43.0686, 43.0533, 38.2606, 34.3938, 26.2172
-        ],
-        '経度': [
-            139.7006, 139.6980, 139.7638, 139.7109, 139.7744,
-            139.7671, 139.7731, 139.7292, 139.7388, 139.5803,
-            139.6220, 139.6978, 139.6244, 140.1161, 139.9753,
-            135.4959, 135.5023, 135.5000, 135.5140, 135.7681,
-            135.1955, 136.8816, 136.9066, 130.4017, 130.4203,
-            141.3507, 141.3545, 140.8719, 132.4553, 127.6809
-        ],
-        '都道府県': [
-            '東京都', '東京都', '東京都', '東京都', '東京都',
-            '東京都', '東京都', '東京都', '東京都', '東京都',
-            '神奈川県', '神奈川県', '埼玉県', '千葉県', '千葉県',
-            '大阪府', '大阪府', '大阪府', '大阪府', '京都府',
-            '兵庫県', '愛知県', '愛知県', '福岡県', '福岡県',
-            '北海道', '北海道', '宮城県', '広島県', '沖縄県'
-        ],
-        '住所': [
-            '東京都新宿区新宿3-38-1', '東京都渋谷区宇田川町25-4', '東京都中央区銀座6-2-3', '東京都豊島区南池袋1-28-2',
-            '東京都台東区上野6-11-3', '東京都中央区八重洲1-5-20', '東京都千代田区外神田1-15-13', '東京都港区六本木6-10-1',
-            '東京都港区高輪4-10-18', '東京都武蔵野市吉祥寺本町1-8-16', '横浜市西区南幸1-5-1', '川崎市川崎区駅前本町26-1',
-            'さいたま市大宮区桜木町1-6-2', '千葉市中央区富士見2-3-1', '千葉県柏市柏1-2-26', '大阪市北区芝田1-1-3',
-            '大阪市中央区難波1-6-1', '大阪市中央区心斎橋筋1-6-1', '大阪市阿倍野区阿倍野筋1-5-1', '京都市下京区四条通河原町西入真町52',
-            '神戸市中央区三宮町1-8-1', '名古屋市中村区名駅4-2-10', '名古屋市中区栄3-4-5', '福岡市中央区天神2-11-1',
-            '福岡市博多区博多駅前2-1-1', '札幌市北区北7条西4-1-2', '札幌市中央区南4条西3-6', '仙台市青葉区一番町3-8-14',
-            '広島市中区本通8-28', '那覇市牧志1-2-31'
-        ]
-    }
+    # list_store.txtから店舗データを読み込む
+    @st.cache_data
+    def load_store_data():
+        """list_store.txtから店舗データを読み込み、緯度経度を取得する"""
+        try:
+            # ファイルを読み込み
+            with open('list_store.txt', 'r', encoding='utf-8') as f:
+                lines = f.readlines()
 
-    df_stores = pd.DataFrame(mcd_stores)
+            # データをパース
+            stores = []
+            for line in lines[2:]:  # ヘッダー行をスキップ
+                if line.strip() and line.startswith('|'):
+                    parts = [p.strip() for p in line.split('|')]
+                    if len(parts) >= 4 and parts[1].strip():
+                        no = parts[1]
+                        name = parts[2]
+                        address = parts[3]
 
-    # サイドバーでフィルター
-    st.sidebar.subheader("表示設定")
-    selected_prefectures = st.sidebar.multiselect(
-        "都道府県で絞り込み",
-        options=sorted(df_stores['都道府県'].unique()),
-        default=sorted(df_stores['都道府県'].unique())
-    )
+                        # 郵便番号を削除して住所のみ抽出
+                        address_clean = re.sub(r'〒\d{3}-\d{4}\s*', '', address)
 
-    # フィルタリング
-    filtered_df = df_stores[df_stores['都道府県'].isin(selected_prefectures)]
+                        stores.append({
+                            'No': no,
+                            '店舗名': name,
+                            '住所': address_clean
+                        })
 
-    # 統計情報
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("総店舗数", len(mcd_stores['店舗名']))
-    with col2:
-        st.metric("表示店舗数", len(filtered_df))
-    with col3:
-        st.metric("都道府県数", len(filtered_df['都道府県'].unique()))
+            df = pd.DataFrame(stores)
 
-    st.markdown("---")
+            # Nominatimを使って緯度経度を取得
+            geolocator = Nominatim(user_agent="streamlit_iy_store_app")
+            geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1)
 
-    # タブで表示切り替え
-    tab1, tab2 = st.tabs(["🗺️ 地図表示", "📋 店舗一覧"])
+            latitudes = []
+            longitudes = []
+            prefectures = []
 
-    with tab1:
-        st.subheader("店舗マップ")
+            progress_bar = st.progress(0)
+            status_text = st.empty()
 
-        if len(filtered_df) == 0:
-            st.warning("選択された都道府県に店舗がありません。")
-        else:
-            # 地図の中心を計算
-            center_lat = filtered_df['緯度'].mean()
-            center_lon = filtered_df['経度'].mean()
+            for idx, row in df.iterrows():
+                status_text.text(f"店舗データを取得中... ({idx + 1}/{len(df)})")
+                progress_bar.progress((idx + 1) / len(df))
 
-            # Foliumマップの作成
-            m = folium.Map(
-                location=[center_lat, center_lon],
-                zoom_start=6,
-                tiles='OpenStreetMap'
+                try:
+                    location = geocode(row['住所'] + ", Japan")
+                    if location:
+                        latitudes.append(location.latitude)
+                        longitudes.append(location.longitude)
+
+                        # 都道府県を抽出
+                        pref_match = re.match(r'([^都道府県]+[都道府県])', row['住所'])
+                        prefecture = pref_match.group(1) if pref_match else '不明'
+                        prefectures.append(prefecture)
+                    else:
+                        latitudes.append(None)
+                        longitudes.append(None)
+                        prefectures.append('不明')
+                except Exception as e:
+                    latitudes.append(None)
+                    longitudes.append(None)
+                    prefectures.append('不明')
+
+                time.sleep(0.1)  # API制限を回避
+
+            progress_bar.empty()
+            status_text.empty()
+
+            df['緯度'] = latitudes
+            df['経度'] = longitudes
+            df['都道府県'] = prefectures
+
+            # 緯度経度が取得できなかった店舗を除外
+            df = df.dropna(subset=['緯度', '経度'])
+
+            return df
+
+        except FileNotFoundError:
+            st.error("list_store.txtファイルが見つかりません。")
+            return pd.DataFrame()
+        except Exception as e:
+            st.error(f"エラーが発生しました: {str(e)}")
+            return pd.DataFrame()
+
+    # データ読み込み
+    with st.spinner('店舗データを読み込み中...'):
+        df_stores = load_store_data()
+
+    if df_stores.empty:
+        st.warning("店舗データを読み込めませんでした。")
+    else:
+        # サイドバーでフィルター
+        st.sidebar.subheader("表示設定")
+        selected_prefectures = st.sidebar.multiselect(
+            "都道府県で絞り込み",
+            options=sorted(df_stores['都道府県'].unique()),
+            default=sorted(df_stores['都道府県'].unique())
+        )
+
+        # フィルタリング
+        filtered_df = df_stores[df_stores['都道府県'].isin(selected_prefectures)]
+
+        # 統計情報
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("総店舗数", len(df_stores))
+        with col2:
+            st.metric("表示店舗数", len(filtered_df))
+        with col3:
+            st.metric("都道府県数", len(filtered_df['都道府県'].unique()))
+
+        st.markdown("---")
+
+        # タブで表示切り替え
+        tab1, tab2 = st.tabs(["🗺️ 地図表示", "📋 店舗一覧"])
+
+        with tab1:
+            st.subheader("店舗マップ")
+
+            if len(filtered_df) == 0:
+                st.warning("選択された都道府県に店舗がありません。")
+            else:
+                # 地図の中心を計算
+                center_lat = filtered_df['緯度'].mean()
+                center_lon = filtered_df['経度'].mean()
+
+                # Foliumマップの作成
+                m = folium.Map(
+                    location=[center_lat, center_lon],
+                    zoom_start=6,
+                    tiles='OpenStreetMap'
+                )
+
+                # マーカーを追加
+                for idx, row in filtered_df.iterrows():
+                    # ポップアップの内容
+                    popup_html = f"""
+                    <div style="font-family: Arial; width: 200px;">
+                        <h4 style="color: #00843D; margin-bottom: 10px;">🏪 {row['店舗名']}</h4>
+                        <p style="margin: 5px 0;"><strong>住所:</strong><br>{row['住所']}</p>
+                        <p style="margin: 5px 0;"><strong>都道府県:</strong> {row['都道府県']}</p>
+                    </div>
+                    """
+
+                    folium.Marker(
+                        location=[row['緯度'], row['経度']],
+                        popup=folium.Popup(popup_html, max_width=300),
+                        tooltip=row['店舗名'],
+                        icon=folium.Icon(color='green', icon='shopping-cart', prefix='fa')
+                    ).add_to(m)
+
+                # マップを表示
+                st_folium(m, width=None, height=600)
+
+                # 地図の使い方
+                with st.expander("💡 地図の使い方"):
+                    st.write("""
+                    - **マーカーをクリック**: 店舗の詳細情報を表示
+                    - **マーカーにホバー**: 店舗名を表示
+                    - **ズーム**: マウスホイールまたは+/-ボタンでズーム
+                    - **移動**: 地図をドラッグして移動
+                    - **絞り込み**: 左のサイドバーで都道府県を選択
+                    """)
+
+        with tab2:
+            st.subheader("店舗一覧")
+
+            # 検索機能
+            search_query = st.text_input("🔍 店舗名で検索", "")
+
+            search_filtered_df = filtered_df.copy()
+            if search_query:
+                search_filtered_df = search_filtered_df[search_filtered_df['店舗名'].str.contains(search_query, case=False)]
+
+            # 並び替え
+            sort_by = st.selectbox("並び替え", ["店舗名", "都道府県"])
+            search_filtered_df = search_filtered_df.sort_values(by=sort_by)
+
+            # 店舗一覧表示
+            st.dataframe(
+                search_filtered_df[['店舗名', '都道府県', '住所', '緯度', '経度']],
+                use_container_width=True,
+                hide_index=True
             )
 
-            # マーカーを追加
-            for idx, row in filtered_df.iterrows():
-                # ポップアップの内容
-                popup_html = f"""
-                <div style="font-family: Arial; width: 200px;">
-                    <h4 style="color: #DA291C; margin-bottom: 10px;">🍔 {row['店舗名']}</h4>
-                    <p style="margin: 5px 0;"><strong>住所:</strong><br>{row['住所']}</p>
-                    <p style="margin: 5px 0;"><strong>都道府県:</strong> {row['都道府県']}</p>
-                </div>
-                """
+            # CSVダウンロード
+            csv = search_filtered_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 CSVダウンロード",
+                data=csv,
+                file_name='ito_yokado_stores.csv',
+                mime='text/csv',
+            )
 
-                folium.Marker(
-                    location=[row['緯度'], row['経度']],
-                    popup=folium.Popup(popup_html, max_width=300),
-                    tooltip=row['店舗名'],
-                    icon=folium.Icon(color='red', icon='cutlery', prefix='fa')
-                ).add_to(m)
+            # 都道府県別統計
+            st.markdown("---")
+            st.subheader("都道府県別店舗数")
 
-            # マップを表示
-            st_folium(m, width=None, height=600)
+            prefecture_counts = filtered_df['都道府県'].value_counts().reset_index()
+            prefecture_counts.columns = ['都道府県', '店舗数']
 
-            # 地図の使い方
-            with st.expander("💡 地図の使い方"):
-                st.write("""
-                - **マーカーをクリック**: 店舗の詳細情報を表示
-                - **マーカーにホバー**: 店舗名を表示
-                - **ズーム**: マウスホイールまたは+/-ボタンでズーム
-                - **移動**: 地図をドラッグして移動
-                - **絞り込み**: 左のサイドバーで都道府県を選択
-                """)
+            fig = px.bar(
+                prefecture_counts,
+                x='都道府県',
+                y='店舗数',
+                title='都道府県別イトーヨーカドー店舗数',
+                color='店舗数',
+                color_continuous_scale='Greens'
+            )
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True)
 
-    with tab2:
-        st.subheader("店舗一覧")
-
-        # 検索機能
-        search_query = st.text_input("🔍 店舗名で検索", "")
-
-        if search_query:
-            filtered_df = filtered_df[filtered_df['店舗名'].str.contains(search_query, case=False)]
-
-        # 並び替え
-        sort_by = st.selectbox("並び替え", ["店舗名", "都道府県"])
-        filtered_df = filtered_df.sort_values(by=sort_by)
-
-        # 店舗一覧表示
-        st.dataframe(
-            filtered_df[['店舗名', '都道府県', '住所', '緯度', '経度']],
-            use_container_width=True,
-            hide_index=True
-        )
-
-        # CSVダウンロード
-        csv = filtered_df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📥 CSVダウンロード",
-            data=csv,
-            file_name='mcdonalds_stores.csv',
-            mime='text/csv',
-        )
-
-        # 都道府県別統計
+        # 注意事項
         st.markdown("---")
-        st.subheader("都道府県別店舗数")
-
-        prefecture_counts = filtered_df['都道府県'].value_counts().reset_index()
-        prefecture_counts.columns = ['都道府県', '店舗数']
-
-        fig = px.bar(
-            prefecture_counts,
-            x='都道府県',
-            y='店舗数',
-            title='都道府県別マクドナルド店舗数',
-            color='店舗数',
-            color_continuous_scale='Reds'
-        )
-        fig.update_layout(height=400)
-        st.plotly_chart(fig, use_container_width=True)
-
-    # 注意事項
-    st.markdown("---")
-    st.info("ℹ️ **注意**: このデータはサンプルデータです。実際の店舗情報の一部のみを表示しています。")
+        st.info("ℹ️ **注意**: 初回読み込み時、住所から緯度経度を取得するため時間がかかる場合があります。取得した緯度経度情報はキャッシュされます。")
 
 # フッター
 st.markdown("---")
