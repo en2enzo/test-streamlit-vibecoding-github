@@ -12,6 +12,9 @@ ENV/
 # Streamlit
 .streamlit/secrets.toml
 
+# Fast-F1 cache
+cache/
+
 # IDE
 .vscode/
 .idea/
