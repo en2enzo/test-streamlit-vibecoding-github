@@ -765,12 +765,14 @@ elif option == "F1分析":
                         # ドライバー別平均ラップタイム
                         st.subheader("ドライバー別統計")
                         avg_laptimes = filtered_laps.groupby('Driver')['LapTimeSeconds'].agg(['mean', 'min', 'max', 'std']).reset_index()
-                        avg_laptimes.columns = ['ドライバー', '平均 (秒)', '最速 (秒)', '最遅 (秒)', '標準偏差']
-                        avg_laptimes = avg_laptimes.sort_values('平均 (秒)')
 
                         # ラップ数も追加
                         lap_counts = filtered_laps.groupby('Driver').size().reset_index(name='ラップ数')
-                        avg_laptimes = avg_laptimes.merge(lap_counts, on='ドライバー')
+                        avg_laptimes = avg_laptimes.merge(lap_counts, on='Driver')
+
+                        # カラム名を日本語に変更
+                        avg_laptimes.columns = ['ドライバー', '平均 (秒)', '最速 (秒)', '最遅 (秒)', '標準偏差', 'ラップ数']
+                        avg_laptimes = avg_laptimes.sort_values('平均 (秒)')
 
                         # 平均ラップタイムの棒グラフ
                         fig_avg = px.bar(
@@ -800,6 +802,10 @@ elif option == "F1分析":
                 laps = session.laps
 
                 if not laps.empty:
+                    # ラップタイムを秒に変換（最初に設定）
+                    if 'LapTimeSeconds' not in laps.columns:
+                        laps['LapTimeSeconds'] = laps['LapTime'].dt.total_seconds()
+
                     # ドライバー選択（複数選択可能）
                     drivers = laps['Driver'].unique()
                     selected_drivers_char = st.multiselect(
@@ -866,9 +872,6 @@ elif option == "F1分析":
 
                         # タイヤコンパウンド別ペース比較
                         st.markdown("### タイヤコンパウンド別ペース")
-
-                        # ラップタイムを秒に変換
-                        laps['LapTimeSeconds'] = laps['LapTime'].dt.total_seconds()
 
                         compound_data = []
                         for driver in selected_drivers_char:
