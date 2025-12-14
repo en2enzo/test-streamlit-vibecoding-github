@@ -713,7 +713,7 @@ elif option == "F1分析":
             st.markdown("---")
 
             # タブで表示を切り替え
-            tab1, tab2, tab3, tab4 = st.tabs(["📊 ラップタイム分析", "🏁 ドライバー比較", "⚡ テレメトリ", "📋 データ"])
+            tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 ラップタイム分析", "🏎️ ドライビング特性", "🏁 ドライバー比較", "⚡ テレメトリ", "📋 データ"])
 
             with tab1:
                 st.subheader("ラップタイム分析")
@@ -736,43 +736,235 @@ elif option == "F1分析":
                         (laps_clean['LapTimeSeconds'] > median_time * 0.9)
                     ]
 
-                    # ラップタイム推移グラフ
-                    fig = px.scatter(
-                        laps_clean,
-                        x='LapNumber',
-                        y='LapTimeSeconds',
-                        color='Driver',
-                        title=f'{year} {gp} GP - ラップタイム推移',
-                        labels={'LapNumber': 'ラップ番号', 'LapTimeSeconds': 'ラップタイム (秒)'},
-                        hover_data=['Compound', 'TyreLife']
+                    # ドライバー選択（複数選択可能）
+                    selected_drivers = st.multiselect(
+                        "表示するドライバーを選択（複数選択可）",
+                        options=sorted(drivers.tolist()),
+                        default=sorted(drivers.tolist())[:5] if len(drivers) > 5 else sorted(drivers.tolist())
                     )
 
-                    fig.update_layout(height=500)
-                    st.plotly_chart(fig, use_container_width=True)
+                    if selected_drivers:
+                        # 選択されたドライバーのデータをフィルタ
+                        filtered_laps = laps_clean[laps_clean['Driver'].isin(selected_drivers)]
 
-                    # ドライバー別平均ラップタイム
-                    st.subheader("ドライバー別平均ラップタイム")
-                    avg_laptimes = laps_clean.groupby('Driver')['LapTimeSeconds'].agg(['mean', 'min', 'max']).reset_index()
-                    avg_laptimes.columns = ['ドライバー', '平均 (秒)', '最速 (秒)', '最遅 (秒)']
-                    avg_laptimes = avg_laptimes.sort_values('平均 (秒)')
+                        # ラップタイム推移グラフ（折れ線）
+                        fig = px.line(
+                            filtered_laps,
+                            x='LapNumber',
+                            y='LapTimeSeconds',
+                            color='Driver',
+                            title=f'{year} {gp} GP - ラップタイム推移',
+                            labels={'LapNumber': 'ラップ番号', 'LapTimeSeconds': 'ラップタイム (秒)'},
+                            markers=True,
+                            hover_data=['Compound', 'TyreLife']
+                        )
 
-                    fig_avg = px.bar(
-                        avg_laptimes,
-                        x='ドライバー',
-                        y='平均 (秒)',
-                        title='ドライバー別平均ラップタイム',
-                        color='平均 (秒)',
-                        color_continuous_scale='Viridis'
-                    )
-                    fig_avg.update_layout(height=400)
-                    st.plotly_chart(fig_avg, use_container_width=True)
+                        fig.update_layout(height=500, hovermode='x unified')
+                        st.plotly_chart(fig, use_container_width=True)
 
-                    # データテーブル
-                    st.dataframe(avg_laptimes, hide_index=True, use_container_width=True)
+                        # ドライバー別平均ラップタイム
+                        st.subheader("ドライバー別統計")
+                        avg_laptimes = filtered_laps.groupby('Driver')['LapTimeSeconds'].agg(['mean', 'min', 'max', 'std']).reset_index()
+                        avg_laptimes.columns = ['ドライバー', '平均 (秒)', '最速 (秒)', '最遅 (秒)', '標準偏差']
+                        avg_laptimes = avg_laptimes.sort_values('平均 (秒)')
+
+                        # ラップ数も追加
+                        lap_counts = filtered_laps.groupby('Driver').size().reset_index(name='ラップ数')
+                        avg_laptimes = avg_laptimes.merge(lap_counts, on='ドライバー')
+
+                        # 平均ラップタイムの棒グラフ
+                        fig_avg = px.bar(
+                            avg_laptimes,
+                            x='ドライバー',
+                            y='平均 (秒)',
+                            title='ドライバー別平均ラップタイム',
+                            color='平均 (秒)',
+                            color_continuous_scale='Viridis',
+                            text='平均 (秒)'
+                        )
+                        fig_avg.update_traces(texttemplate='%{text:.2f}', textposition='outside')
+                        fig_avg.update_layout(height=400)
+                        st.plotly_chart(fig_avg, use_container_width=True)
+
+                        # データテーブル
+                        st.dataframe(avg_laptimes.round(3), hide_index=True, use_container_width=True)
+                    else:
+                        st.warning("ドライバーを選択してください。")
                 else:
                     st.warning("ラップデータが見つかりませんでした。")
 
             with tab2:
+                st.subheader("ドライビング特性比較")
+
+                # ラップデータを取得
+                laps = session.laps
+
+                if not laps.empty:
+                    # ドライバー選択（複数選択可能）
+                    drivers = laps['Driver'].unique()
+                    selected_drivers_char = st.multiselect(
+                        "比較するドライバーを選択",
+                        options=sorted(drivers.tolist()),
+                        default=sorted(drivers.tolist())[:3] if len(drivers) > 3 else sorted(drivers.tolist()),
+                        key='char_drivers'
+                    )
+
+                    if selected_drivers_char:
+                        # セクタータイム比較
+                        st.markdown("### セクタータイム比較")
+                        sector_data = []
+                        for driver in selected_drivers_char:
+                            driver_laps = laps.pick_driver(driver)
+                            if not driver_laps.empty:
+                                # セクタータイムを秒に変換
+                                s1 = driver_laps['Sector1Time'].dt.total_seconds()
+                                s2 = driver_laps['Sector2Time'].dt.total_seconds()
+                                s3 = driver_laps['Sector3Time'].dt.total_seconds()
+
+                                # 有効なラップのみ
+                                valid_s1 = s1[s1.notna()]
+                                valid_s2 = s2[s2.notna()]
+                                valid_s3 = s3[s3.notna()]
+
+                                if not valid_s1.empty and not valid_s2.empty and not valid_s3.empty:
+                                    sector_data.append({
+                                        'ドライバー': driver,
+                                        'セクター1 (秒)': valid_s1.mean(),
+                                        'セクター2 (秒)': valid_s2.mean(),
+                                        'セクター3 (秒)': valid_s3.mean()
+                                    })
+
+                        if sector_data:
+                            sector_df = pd.DataFrame(sector_data)
+
+                            # セクター別の折れ線グラフ
+                            fig_sector = go.Figure()
+
+                            for sector in ['セクター1 (秒)', 'セクター2 (秒)', 'セクター3 (秒)']:
+                                fig_sector.add_trace(go.Scatter(
+                                    x=sector_df['ドライバー'],
+                                    y=sector_df[sector],
+                                    mode='lines+markers',
+                                    name=sector,
+                                    line=dict(width=3),
+                                    marker=dict(size=10)
+                                ))
+
+                            fig_sector.update_layout(
+                                title='セクター別平均タイム比較',
+                                xaxis_title='ドライバー',
+                                yaxis_title='平均タイム (秒)',
+                                height=400,
+                                hovermode='x unified'
+                            )
+                            st.plotly_chart(fig_sector, use_container_width=True)
+
+                            # セクタータイムのデータテーブル
+                            st.dataframe(sector_df.round(3), hide_index=True, use_container_width=True)
+                        else:
+                            st.warning("セクタータイムデータが見つかりませんでした。")
+
+                        # タイヤコンパウンド別ペース比較
+                        st.markdown("### タイヤコンパウンド別ペース")
+
+                        # ラップタイムを秒に変換
+                        laps['LapTimeSeconds'] = laps['LapTime'].dt.total_seconds()
+
+                        compound_data = []
+                        for driver in selected_drivers_char:
+                            driver_laps = laps.pick_driver(driver)
+                            if not driver_laps.empty and 'Compound' in driver_laps.columns:
+                                for compound in driver_laps['Compound'].dropna().unique():
+                                    compound_laps = driver_laps[driver_laps['Compound'] == compound]
+                                    valid_times = compound_laps['LapTimeSeconds'].dropna()
+                                    if len(valid_times) > 0:
+                                        # 外れ値除去
+                                        median = valid_times.median()
+                                        valid_times = valid_times[
+                                            (valid_times < median * 1.1) &
+                                            (valid_times > median * 0.9)
+                                        ]
+                                        if len(valid_times) > 0:
+                                            compound_data.append({
+                                                'ドライバー': driver,
+                                                'タイヤ': compound,
+                                                '平均ラップタイム (秒)': valid_times.mean(),
+                                                'ラップ数': len(valid_times)
+                                            })
+
+                        if compound_data:
+                            compound_df = pd.DataFrame(compound_data)
+
+                            fig_compound = px.line(
+                                compound_df,
+                                x='タイヤ',
+                                y='平均ラップタイム (秒)',
+                                color='ドライバー',
+                                title='タイヤコンパウンド別平均ラップタイム',
+                                markers=True,
+                                line_shape='linear'
+                            )
+                            fig_compound.update_layout(height=400, hovermode='x unified')
+                            st.plotly_chart(fig_compound, use_container_width=True)
+
+                            st.dataframe(compound_df.round(3), hide_index=True, use_container_width=True)
+                        else:
+                            st.warning("タイヤコンパウンドデータが見つかりませんでした。")
+
+                        # ペース安定性比較（標準偏差）
+                        st.markdown("### ペース安定性比較")
+
+                        stability_data = []
+                        for driver in selected_drivers_char:
+                            driver_laps = laps.pick_driver(driver)
+                            if not driver_laps.empty:
+                                valid_times = driver_laps['LapTimeSeconds'].dropna()
+                                if len(valid_times) > 1:
+                                    # 外れ値除去
+                                    median = valid_times.median()
+                                    valid_times = valid_times[
+                                        (valid_times < median * 1.1) &
+                                        (valid_times > median * 0.9)
+                                    ]
+                                    if len(valid_times) > 1:
+                                        stability_data.append({
+                                            'ドライバー': driver,
+                                            '標準偏差 (秒)': valid_times.std(),
+                                            '平均 (秒)': valid_times.mean(),
+                                            '変動係数 (%)': (valid_times.std() / valid_times.mean() * 100)
+                                        })
+
+                        if stability_data:
+                            stability_df = pd.DataFrame(stability_data).sort_values('標準偏差 (秒)')
+
+                            fig_stability = go.Figure()
+                            fig_stability.add_trace(go.Scatter(
+                                x=stability_df['ドライバー'],
+                                y=stability_df['標準偏差 (秒)'],
+                                mode='lines+markers',
+                                name='標準偏差',
+                                line=dict(color='red', width=3),
+                                marker=dict(size=12)
+                            ))
+                            fig_stability.update_layout(
+                                title='ペース安定性（標準偏差が小さいほど安定）',
+                                xaxis_title='ドライバー',
+                                yaxis_title='標準偏差 (秒)',
+                                height=400
+                            )
+                            st.plotly_chart(fig_stability, use_container_width=True)
+
+                            st.dataframe(stability_df.round(3), hide_index=True, use_container_width=True)
+                            st.info("💡 **標準偏差が小さいほどペースが安定しています。変動係数はペースのばらつきをパーセンテージで表します。**")
+                        else:
+                            st.warning("ペース安定性データを計算できませんでした。")
+
+                    else:
+                        st.warning("ドライバーを選択してください。")
+                else:
+                    st.warning("ラップデータが見つかりませんでした。")
+
+            with tab3:
                 st.subheader("ドライバー比較")
 
                 # ドライバー選択
@@ -840,10 +1032,83 @@ elif option == "F1分析":
                             st.metric("平均ラップタイム", f"{d2_clean['LapTimeSeconds'].mean():.3f}秒")
                             st.metric("最速ラップ", f"{d2_clean['LapTimeSeconds'].min():.3f}秒")
                             st.metric("ラップ数", len(d2_clean))
+
+                    # セクタータイム比較
+                    st.markdown("---")
+                    st.subheader("セクタータイム比較")
+
+                    # セクタータイムデータを取得
+                    sector_comparison = []
+                    for driver, driver_laps_data in [(driver1, driver1_laps), (driver2, driver2_laps)]:
+                        s1 = driver_laps_data['Sector1Time'].dt.total_seconds()
+                        s2 = driver_laps_data['Sector2Time'].dt.total_seconds()
+                        s3 = driver_laps_data['Sector3Time'].dt.total_seconds()
+
+                        valid_s1 = s1[s1.notna()]
+                        valid_s2 = s2[s2.notna()]
+                        valid_s3 = s3[s3.notna()]
+
+                        if not valid_s1.empty and not valid_s2.empty and not valid_s3.empty:
+                            sector_comparison.append({
+                                'ドライバー': driver,
+                                'セクター1': valid_s1.mean(),
+                                'セクター2': valid_s2.mean(),
+                                'セクター3': valid_s3.mean()
+                            })
+
+                    if sector_comparison:
+                        sector_comp_df = pd.DataFrame(sector_comparison)
+
+                        # セクター別比較グラフ
+                        fig_sector_comp = go.Figure()
+
+                        sectors = ['セクター1', 'セクター2', 'セクター3']
+                        colors = ['blue', 'green', 'red']
+
+                        for i, sector in enumerate(sectors):
+                            fig_sector_comp.add_trace(go.Scatter(
+                                x=sector_comp_df['ドライバー'],
+                                y=sector_comp_df[sector],
+                                mode='lines+markers',
+                                name=sector,
+                                line=dict(width=3, color=colors[i]),
+                                marker=dict(size=12)
+                            ))
+
+                        fig_sector_comp.update_layout(
+                            title=f'{driver1} vs {driver2} - セクター別平均タイム',
+                            xaxis_title='ドライバー',
+                            yaxis_title='平均タイム (秒)',
+                            height=400,
+                            hovermode='x unified'
+                        )
+                        st.plotly_chart(fig_sector_comp, use_container_width=True)
+
+                        # セクタータイムの差分表示
+                        if len(sector_comp_df) == 2:
+                            st.markdown("### セクター別タイム差")
+                            diff_data = {
+                                'セクター': sectors,
+                                f'{driver1} (秒)': [sector_comp_df.iloc[0]['セクター1'],
+                                                  sector_comp_df.iloc[0]['セクター2'],
+                                                  sector_comp_df.iloc[0]['セクター3']],
+                                f'{driver2} (秒)': [sector_comp_df.iloc[1]['セクター1'],
+                                                  sector_comp_df.iloc[1]['セクター2'],
+                                                  sector_comp_df.iloc[1]['セクター3']],
+                                '差 (秒)': [
+                                    sector_comp_df.iloc[1]['セクター1'] - sector_comp_df.iloc[0]['セクター1'],
+                                    sector_comp_df.iloc[1]['セクター2'] - sector_comp_df.iloc[0]['セクター2'],
+                                    sector_comp_df.iloc[1]['セクター3'] - sector_comp_df.iloc[0]['セクター3']
+                                ]
+                            }
+                            diff_df = pd.DataFrame(diff_data)
+                            st.dataframe(diff_df.round(3), hide_index=True, use_container_width=True)
+                    else:
+                        st.warning("セクタータイムデータが見つかりませんでした。")
                 else:
                     st.warning("選択したドライバーのデータが見つかりませんでした。")
 
-            with tab3:
+            with tab4:
                 st.subheader("テレメトリデータ")
 
                 # ドライバー選択
@@ -929,7 +1194,7 @@ elif option == "F1分析":
                 else:
                     st.warning("選択したドライバーのデータが見つかりませんでした。")
 
-            with tab4:
+            with tab5:
                 st.subheader("セッションデータ")
 
                 # ラップデータ表示
