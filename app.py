@@ -14,6 +14,7 @@ import time
 import re
 import fastf1
 import warnings
+import os
 
 # ページ設定
 st.set_page_config(
@@ -656,7 +657,9 @@ elif option == "F1分析":
 
     # Fast-F1のキャッシュを有効化
     warnings.filterwarnings('ignore')
-    fastf1.Cache.enable_cache('cache')
+    cache_dir = 'cache'
+    os.makedirs(cache_dir, exist_ok=True)
+    fastf1.Cache.enable_cache(cache_dir)
 
     # サイドバー設定
     st.sidebar.subheader("分析設定")
